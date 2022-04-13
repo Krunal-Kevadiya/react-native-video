@@ -39,6 +39,9 @@ public class ReactExoplayerViewManager extends ViewGroupManager<ReactExoplayerVi
     private static final String PROP_DRM_HEADERS = "headers";
     private static final String PROP_SRC_HEADERS = "requestHeaders";
     private static final String PROP_RESIZE_MODE = "resizeMode";
+    private static final String PROP_CACHE = "cache";
+    private static final String PROP_MAX_CACHE_SIZE = "maxCacheSize";
+    private static final String PROP_MAX_CACHE_FILE_SIZE = "maxCacheFileSize";
     private static final String PROP_REPEAT = "repeat";
     private static final String PROP_SELECTED_AUDIO_TRACK = "selectedAudioTrack";
     private static final String PROP_SELECTED_AUDIO_TRACK_TYPE = "type";
@@ -207,6 +210,21 @@ public class ReactExoplayerViewManager extends ViewGroupManager<ReactExoplayerVi
         videoView.setResizeModeModifier(convertToIntDef(resizeModeOrdinalString));
     }
 
+    @ReactProp(name = PROP_CACHE, defaultBoolean = false)
+    public void setCache(final ReactExoplayerView videoView, final boolean cache) {
+        videoView.setCache(cache);
+    }
+
+    @ReactProp(name = PROP_MAX_CACHE_SIZE, defaultInt = 100)
+    public void setMaxCacheSize(final ReactExoplayerView videoView, final int maxCacheSize) {
+        videoView.setMaxCacheSize(maxCacheSize);
+    }
+
+    @ReactProp(name = PROP_MAX_CACHE_FILE_SIZE, defaultInt = 10)
+    public void setMaxCacheFileSize(final ReactExoplayerView videoView, final int maxCacheFileSize) {
+        videoView.setMaxCacheFileSize(maxCacheFileSize);
+    }
+    
     @ReactProp(name = PROP_REPEAT, defaultBoolean = false)
     public void setRepeat(final ReactExoplayerView videoView, final boolean repeat) {
         videoView.setRepeatModifier(repeat);

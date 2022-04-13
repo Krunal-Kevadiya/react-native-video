@@ -35,6 +35,7 @@
         "TextTrackType.js",
         "VideoResizeMode.js",
         "react-native-video.podspec",
-        "docs"
+        "docs",
+        "index.d.ts"
     ]
 }
