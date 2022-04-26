@@ -286,6 +286,12 @@ export default class Video extends Component {
     }
   };
 
+  _onExternalPauseToggled = (event) => {
+    if (this.props.onExternalPauseToggled) {
+      this.props.onExternalPauseToggled(event.nativeEvent)
+    }
+  };
+
   getViewManagerConfig = viewManagerName => {
     if (!UIManager.getViewManagerConfig) {
       return UIManager[viewManagerName];
@@ -375,6 +381,7 @@ export default class Video extends Component {
       onPictureInPictureStatusChanged: this._onPictureInPictureStatusChanged,
       onRestoreUserInterfaceForPictureInPictureStop: this._onRestoreUserInterfaceForPictureInPictureStop,
       onReceiveAdEvent: this._onReceiveAdEvent,
+      onExternalPauseToggled: this._onExternalPauseToggled
     });
 
     const posterStyle = {
@@ -516,6 +523,7 @@ Video.propTypes = {
   rate: PropTypes.number,
   pictureInPicture: PropTypes.bool,
   playInBackground: PropTypes.bool,
+  showPictureInPictureOnLeave: PropTypes.bool,
   preferredForwardBufferDuration: PropTypes.number,
   playWhenInactive: PropTypes.bool,
   ignoreSilentSwitch: PropTypes.oneOf(['ignore', 'obey']),
@@ -567,6 +575,7 @@ Video.propTypes = {
   onExternalPlaybackChange: PropTypes.func,
   adTagUrl: PropTypes.string,
   onReceiveAdEvent: PropTypes.func,
+  onExternalPauseToggled: PropTypes.func,
 
   /* Required by react-native */
   scaleX: PropTypes.number,

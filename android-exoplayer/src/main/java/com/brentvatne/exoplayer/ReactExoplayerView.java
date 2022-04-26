@@ -2,11 +2,17 @@ package com.brentvatne.exoplayer;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.PictureInPictureParams;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Message;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
@@ -14,6 +20,7 @@ import android.view.Window;
 import android.view.accessibility.CaptioningManager;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.support.v4.media.session.MediaSessionCompat;
 
 import com.brentvatne.react.R;
 import com.brentvatne.receiver.AudioBecomingNoisyReceiver;
@@ -72,12 +79,14 @@ import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
 import com.google.android.exoplayer2.upstream.HttpDataSource;
 import com.google.android.exoplayer2.util.Util;
 import com.google.android.exoplayer2.SeekParameters;
+import com.google.android.exoplayer2.ext.mediasession.MediaSessionConnector;
 
 import java.net.CookieHandler;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.Map;
 
@@ -101,6 +110,9 @@ class ReactExoplayerView extends FrameLayout implements
         DEFAULT_COOKIE_MANAGER.setCookiePolicy(CookiePolicy.ACCEPT_ORIGINAL_SERVER);
     }
 
+    private final BroadcastReceiver pipReceiver;
+    private final BroadcastReceiver leaveReceiver;
+    private final MediaSessionCompat mediaSession = new MediaSessionCompat(getContext(), "tag");
     private final VideoEventEmitter eventEmitter;
     private final ReactExoplayerConfig config;
     private final DefaultBandwidthMeter bandwidthMeter;
@@ -126,6 +138,7 @@ class ReactExoplayerView extends FrameLayout implements
     private boolean isInBackground;
     private boolean isPaused;
     private boolean isBuffering;
+    private boolean isInPictureInPictureMode;
     private boolean muted = false;
     private boolean hasAudioFocus = false;
     private float rate = 1f;
@@ -160,6 +173,7 @@ class ReactExoplayerView extends FrameLayout implements
     private String drmLicenseUrl = null;
     private String[] drmLicenseHeader = null;
     private boolean controls;
+    private boolean showPictureInPictureOnLeave;
     // \ End props
 
     // React
@@ -207,6 +221,29 @@ class ReactExoplayerView extends FrameLayout implements
         audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         themedReactContext.addLifecycleEventListener(this);
         audioBecomingNoisyReceiver = new AudioBecomingNoisyReceiver(themedReactContext);
+
+        ReactExoplayerView self = this;
+
+        pipReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                boolean isInPictureInPictureMode = intent.getBooleanExtra("isInPictureInPictureMode", false);
+                self.onPictureInPictureModeChanged(isInPictureInPictureMode);
+            }
+        };
+
+        leaveReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (showPictureInPictureOnLeave) {
+                    self.setPictureInPicture(true, true);
+                }
+            }
+        };
+
+        Activity activity = Objects.requireNonNull(this.themedReactContext.getCurrentActivity());
+        activity.registerReceiver(pipReceiver, new IntentFilter("onPictureInPictureModeChanged"));
+        activity.registerReceiver(leaveReceiver, new IntentFilter("onUserLeaveHint"));
     }
 
 
@@ -260,7 +297,7 @@ class ReactExoplayerView extends FrameLayout implements
     @Override
     public void onHostPause() {
         isInBackground = true;
-        if (playInBackground) {
+        if (playInBackground || showPictureInPictureOnLeave) {
             return;
         }
         setPlayWhenReady(false);
@@ -269,6 +306,15 @@ class ReactExoplayerView extends FrameLayout implements
     @Override
     public void onHostDestroy() {
         stopPlayback();
+
+        Activity activity = themedReactContext.getCurrentActivity();
+        if (activity == null) return;
+        try {
+            activity.unregisterReceiver(pipReceiver);
+            activity.unregisterReceiver(leaveReceiver);
+        } catch (Exception ignore) {
+            // ignore if already unregistered
+        }
     }
 
     public void cleanUpResources() {
@@ -476,6 +522,11 @@ class ReactExoplayerView extends FrameLayout implements
                 initializePlayerControl();
                 setControls(controls);
                 applyModifiers();
+
+                //Use Media Session Connector from the ExoPlayer library to enable MediaSession Controls in PIP.
+                MediaSessionConnector mediaSessionConnector = new MediaSessionConnector(mediaSession);
+                mediaSessionConnector.setPlayer(player);
+                mediaSession.setActive(true);
             }
         }, 1);
     }
@@ -576,6 +627,7 @@ class ReactExoplayerView extends FrameLayout implements
         themedReactContext.removeLifecycleEventListener(this);
         audioBecomingNoisyReceiver.removeListener();
         bandwidthMeter.removeEventListener(this);
+        mediaSession.release();
     }
 
     private boolean requestAudioFocus() {
@@ -688,8 +740,6 @@ class ReactExoplayerView extends FrameLayout implements
     /**
      * Returns a new HttpDataSource factory.
      *
-     * @param useBandwidthMeter Whether to set {@link #bandwidthMeter} as a listener to the new
-     *     DataSource factory.
      * @return A new HttpDataSource factory.
      */
     private HttpDataSource.Factory buildHttpDataSourceFactory() {
@@ -777,6 +827,14 @@ class ReactExoplayerView extends FrameLayout implements
                     playerControlView.show();
                 }
                 setKeepScreenOn(preventsDisplaySleepDuringVideoPlayback);
+
+                /*
+                 * If play is in playing state, but PAUSED prop is TRUE, report
+                 * external play/pause state change.
+                 */
+                if (playWhenReady == isPaused) {
+                   eventEmitter.externalPauseToggled(playWhenReady);
+                }
                 break;
             case Player.STATE_ENDED:
                 text += "ended";
@@ -1418,5 +1476,50 @@ class ReactExoplayerView extends FrameLayout implements
                 removeViewAt(indexOfPC);
             }
         }
+    }
+
+    /**
+     * Handling showPictureInPictureOnLeave prop.
+     *
+     * @param showPictureInPictureOnLeaveProp If true, enter pip mode when pressing home or recent HW button.
+     */
+    public void setShowPictureInPictureOnLeave(boolean showPictureInPictureOnLeaveProp) {
+        showPictureInPictureOnLeave = showPictureInPictureOnLeaveProp;
+    }
+
+    /**
+     * Handling pip prop.
+     *
+     * @param pictureInPicture  Pip prop, if true, enter PIP mode.
+     */
+    public void setPictureInPicture(boolean pictureInPicture, boolean pictureInPictureOnLeave) {
+        if (pictureInPicture && pictureInPictureOnLeave) {
+            this.enterPictureInPictureMode();
+        }
+        isInPictureInPictureMode = pictureInPicture;
+    }
+
+    /**
+     * PIP handled, for N devices that support it, not "officially".
+     */
+    public void enterPictureInPictureMode() {
+        PackageManager packageManager = themedReactContext.getPackageManager();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
+                && packageManager
+                .hasSystemFeature(
+                        PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+
+            Activity activity = Objects.requireNonNull(this.themedReactContext.getCurrentActivity());;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                PictureInPictureParams.Builder params = new PictureInPictureParams.Builder();
+                activity.enterPictureInPictureMode(params.build());
+            } else {
+                activity.enterPictureInPictureMode();
+            }
+        }
+    }
+
+    public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode) {
+        eventEmitter.pictureInPictureModeChanged(isInPictureInPictureMode);
     }
 }
